@@ -257,9 +257,17 @@ struct flb_elasticsearch *flb_es_conf_create(struct flb_output_instance *ins,
     /* Generate _id */
     tmp = flb_output_get_property("generate_id", ins);
     if (tmp) {
-        ctx->generate_id = bool_value(tmp);
+        ctx->generate_id = flb_utils_bool(tmp);
     } else {
         ctx->generate_id = FLB_FALSE;
+    }
+
+    /* Use current time for index generation instead of message record */
+    tmp = flb_output_get_property("current_time_index", ins);
+    if (tmp) {
+        ctx->current_time_index = flb_utils_bool(tmp);
+    } else {
+        ctx->current_time_index = FLB_FALSE;
     }
 
     return ctx;
