@@ -129,7 +129,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     while (true)
     {
         region = onig_region_new();
-        end = val + vlen;
+        end = val + (vlen - offset);
         range = end;
         start = (unsigned char *)val;
         ret = onig_search(rule->regex->regex, (unsigned char *)val, end, start, range, region, ONIG_OPTION_NONE);
