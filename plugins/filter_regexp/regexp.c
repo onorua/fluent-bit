@@ -122,7 +122,10 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     ssize_t ret;
     OnigRegion *region;
 
-    unsigned char *replaced = flb_calloc(vlen, sizeof(unsigned char));
+    int allocate = vlen * 2;
+    int allocated = 0;
+    unsigned char *replaced = flb_calloc(allocate, sizeof(unsigned char));
+    allocated = allocate;
 
     int offset = 0;
     int len = 0;
@@ -136,10 +139,15 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
         /* we have got a match */
         if (ret >= 0)
         {
-            replaced = flb_realloc(replaced, vlen + rule->replacement_len);
-            if (!replaced)
+            if (allocated < vlen + rule->replacement_len)
             {
-                flb_error("[in_regexp] could not allocate memory");
+                allocate = (vlen + rule->replacement_len) * 2;
+                replaced = flb_realloc(replaced, allocate);
+                if (!replaced)
+                {
+                    flb_error("[in_regexp] could not allocate memory");
+                }
+                allocated = allocate;
             }
             strncat((unsigned char *)replaced, (unsigned char *)start, region->beg[DEFAULT_INDEX]);
             strncat(replaced, (unsigned char *)rule->replacement, strlen((unsigned char *)rule->replacement));
@@ -166,10 +174,13 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     // Add any text after the last match
     if (offset < vlen)
     {
-        flb_realloc(replaced, strlen(replaced) + (vlen - offset));
-        if (!replaced)
+        if (allocated < strlen(replaced) + (vlen - offset))
         {
-            flb_error("[in_regexp] could not allocate memory");
+            flb_realloc(replaced, strlen(replaced) + (vlen - offset));
+            if (!replaced)
+            {
+                flb_error("[in_regexp] could not allocate memory");
+            }
         }
         strncat((char *)replaced, (char *)val, (vlen - offset));
         len += vlen - offset;
