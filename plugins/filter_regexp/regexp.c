@@ -122,9 +122,11 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     ssize_t ret;
     OnigRegion *region;
 
-    int allocate = vlen * 2;
+    const long multiplier = 1.5;
+
+    int allocate = vlen * multiplier;
     int allocated = 0;
-    unsigned char *replaced = flb_calloc(allocate, sizeof(unsigned char));
+    unsigned char *replaced = flb_malloc(allocate * sizeof(unsigned char));
     allocated = allocate;
 
     int offset = 0;
@@ -141,8 +143,8 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
         {
             if (allocated < vlen + rule->replacement_len)
             {
-                allocate = (vlen + rule->replacement_len) * 2;
-                replaced = flb_realloc(replaced, allocate);
+                allocate = (vlen + rule->replacement_len) * multiplier;
+                replaced = flb_realloc(replaced, allocate * sizeof(unsigned char));
                 if (!replaced)
                 {
                     flb_error("[in_regexp] could not allocate memory");
@@ -150,7 +152,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
                 allocated = allocate;
             }
             strncat((unsigned char *)replaced, (unsigned char *)start, region->beg[DEFAULT_INDEX]);
-            strncat(replaced, (unsigned char *)rule->replacement, strlen((unsigned char *)rule->replacement));
+            strncat((unsigned char *)replaced, (unsigned char *)rule->replacement, strlen((unsigned char *)rule->replacement));
             ret = 0;
             offset += region->end[DEFAULT_INDEX];
             val = val + region->end[DEFAULT_INDEX];
@@ -174,9 +176,10 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     // Add any text after the last match
     if (offset < vlen)
     {
-        if (allocated < strlen(replaced) + (vlen - offset))
+        if (allocated < strlen((unsigned char *)replaced) + (vlen - offset))
         {
-            flb_realloc(replaced, strlen(replaced) + (vlen - offset));
+            allocate = strlen((unsigned char *)replaced) + (vlen - offset);
+            flb_realloc(replaced, allocate * sizeof(unsigned char));
             if (!replaced)
             {
                 flb_error("[in_regexp] could not allocate memory");
