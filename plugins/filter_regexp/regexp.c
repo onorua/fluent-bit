@@ -122,7 +122,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     ssize_t ret;
     OnigRegion *region;
 
-    const long multiplier = 1.5;
+    const long multiplier = 1;
 
     int allocate = vlen * multiplier;
     int allocated = 0;
@@ -134,7 +134,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     while (true)
     {
         region = onig_region_new();
-        end = val + (vlen - offset);
+        end = (unsigned char *)val + (vlen - offset);
         range = end;
         start = (unsigned char *)val;
         ret = onig_search(rule->regex->regex, (unsigned char *)val, end, start, range, region, ONIG_OPTION_NONE);
@@ -151,12 +151,12 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
                 }
                 allocated = allocate;
             }
-            strncat((unsigned char *)replaced, (unsigned char *)start, region->beg[DEFAULT_INDEX]);
-            strncat((unsigned char *)replaced, (unsigned char *)rule->replacement, strlen((unsigned char *)rule->replacement));
-            ret = 0;
+            memcpy((unsigned char *)replaced + len, (unsigned char *)start, region->beg[DEFAULT_INDEX] * sizeof(unsigned char));
+            len += region->beg[DEFAULT_INDEX];
+            memcpy((unsigned char *)replaced + len, (unsigned char *)rule->replacement, rule->replacement_len * sizeof(unsigned char) );
             offset += region->end[DEFAULT_INDEX];
+            len += rule->replacement_len;
             val = val + region->end[DEFAULT_INDEX];
-            len += region->beg[DEFAULT_INDEX] + strlen((unsigned char *)rule->replacement);
         }
         else if (ret == ONIG_MISMATCH)
         {
@@ -176,16 +176,16 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     // Add any text after the last match
     if (offset < vlen)
     {
-        if (allocated < strlen((unsigned char *)replaced) + (vlen - offset))
+        if (allocated < len + (vlen - offset))
         {
-            allocate = strlen((unsigned char *)replaced) + (vlen - offset);
+            allocate = len + (vlen - offset);
             flb_realloc(replaced, allocate * sizeof(unsigned char));
             if (!replaced)
             {
                 flb_error("[in_regexp] could not allocate memory");
             }
         }
-        strncat((char *)replaced, (char *)val, (vlen - offset));
+        memcpy((unsigned char *)replaced + len, (unsigned char *)val, (vlen - offset) * sizeof(unsigned char));
         len += vlen - offset;
         offset = 0;
     }
