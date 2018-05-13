@@ -120,7 +120,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
 {
     unsigned char *start, *range, *end;
     ssize_t ret;
-    OnigRegion *region;
+    OnigRegion *region = onig_region_new();
 
     const long multiplier = 1;
 
@@ -133,7 +133,6 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     int len = 0;
     while (true)
     {
-        region = onig_region_new();
         end = (unsigned char *)val + (vlen - offset);
         range = end;
         start = (unsigned char *)val;
@@ -170,9 +169,9 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
             fprintf(stderr, "ERROR: %s\n", s);
             return -1;
         }
-        onig_region_free(region, 1 /* 1:free self, 0:free contents only */);
     }
 
+    onig_region_free(region, 0 /* 1:free self, 0:free contents only */);
     // Add any text after the last match
     if (offset < vlen)
     {
@@ -190,6 +189,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
         offset = 0;
     }
 
+    onig_region_free(region, 1 /* 1:free self, 0:free contents only */);
     *out_buf = replaced;
     *out_size = len;
     return REGEXP_RET_MODIFIED;
@@ -287,7 +287,7 @@ static int cb_regexp_filter(void *data, size_t bytes,
         if (obj->type == MSGPACK_OBJECT_MAP)
         {
             map_num = obj->via.map.size;
-            kv_map = flb_calloc(map_num, sizeof(struct mpk_kv));
+            kv_map = flb_malloc(map_num * sizeof(struct mpk_kv));
 
             for (i = 0; i < map_num; i++)
             {
@@ -334,7 +334,6 @@ static int cb_regexp_filter(void *data, size_t bytes,
             }
 
             flb_free(out_buf);
-            flb_free(kv_map);
             ret = FLB_FILTER_MODIFIED;
         }
         else
@@ -342,9 +341,10 @@ static int cb_regexp_filter(void *data, size_t bytes,
             /* re-use original data*/
             msgpack_pack_object(&tmp_pck, result.data);
         }
+        flb_free(kv_map);
+        msgpack_unpacked_destroy(&result);
     }
 
-    msgpack_unpacked_destroy(&result);
 
     /* link new buffers */
     *ret_buf = tmp_sbuf.data;
