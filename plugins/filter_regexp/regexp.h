@@ -25,10 +25,6 @@
 
 #define DEFAULT_INDEX 0
 
-/* actions */
-#define REGEXP_RET_MODIFIED 0
-#define REGEXP_RET_KEPT 1
-
 struct regexp_ctx
 {
     struct mk_list rules;
