@@ -127,6 +127,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     int allocate = vlen * multiplier;
     int allocated = 0;
     unsigned char *replaced = flb_malloc(allocate * sizeof(unsigned char));
+    unsigned char *tmp_ptr;
     allocated = allocate;
 
     int offset = 0;
@@ -143,11 +144,13 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
             if (allocated < vlen + rule->replacement_len)
             {
                 allocate = (vlen + rule->replacement_len) * multiplier;
-                replaced = flb_realloc(replaced, allocate * sizeof(unsigned char));
-                if (!replaced)
+                tmp_ptr = flb_realloc(replaced, allocate * sizeof(unsigned char));
+                if (!tmp_ptr)
                 {
                     flb_error("[in_regexp] could not allocate memory");
+                    flb_free(tmp_ptr);
                 }
+                replaced = tmp_ptr;
                 allocated = allocate;
             }
             memcpy((unsigned char *)replaced + len, (unsigned char *)start, region->beg[DEFAULT_INDEX] * sizeof(unsigned char));
@@ -178,11 +181,13 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
         if (allocated < len + (vlen - offset))
         {
             allocate = len + (vlen - offset);
-            flb_realloc(replaced, allocate * sizeof(unsigned char));
-            if (!replaced)
+            tmp_ptr = flb_realloc(replaced, allocate * sizeof(unsigned char));
+            if (!tmp_ptr)
             {
                 flb_error("[in_regexp] could not allocate memory");
+                flb_free(tmp_ptr);
             }
+            replaced = tmp_ptr;
         }
         memcpy((unsigned char *)replaced + len, (unsigned char *)val, (vlen - offset) * sizeof(unsigned char));
         len += vlen - offset;
@@ -257,7 +262,7 @@ static int cb_regexp_filter(void *data, size_t bytes,
     struct flb_time tm;
     msgpack_object *obj;
     int map_num;
-    char *out_buf;
+    unsigned char * out_buf;
     size_t out_size;
     struct regexp_ctx *ctx = context;
 
@@ -278,7 +283,6 @@ static int cb_regexp_filter(void *data, size_t bytes,
     while (msgpack_unpack_next(&result, data, bytes, &off))
     {
         out_buf = NULL;
-
         if (result.data.type != MSGPACK_OBJECT_ARRAY)
         {
             continue;
@@ -312,7 +316,7 @@ static int cb_regexp_filter(void *data, size_t bytes,
                     rule = mk_list_entry(head, struct regexp_rule, _head);
 
                     ret = regexp_replace_data(rule, kv_map[i].val, kv_map[i].vlen,
-                                              (void **)&out_buf, &out_size);
+                                              (unsigned char **)&out_buf, &out_size);
                     kv_map[i].val = out_buf;
                     kv_map[i].vlen = out_size;
 
@@ -334,22 +338,22 @@ static int cb_regexp_filter(void *data, size_t bytes,
             }
 
             flb_free(out_buf);
+            out_buf = NULL;
             ret = FLB_FILTER_MODIFIED;
         }
-        else
-        {
-            /* re-use original data*/
-            msgpack_pack_object(&tmp_pck, result.data);
-        }
+        // else
+        // {
+        //     /* re-use original data*/
+        //     msgpack_pack_object(&tmp_pck, result.data);
+        // }
         flb_free(kv_map);
+        kv_map = NULL;
         msgpack_unpacked_destroy(&result);
     }
-
 
     /* link new buffers */
     *ret_buf = tmp_sbuf.data;
     *ret_size = tmp_sbuf.size;
-
     return ret;
 }
 
