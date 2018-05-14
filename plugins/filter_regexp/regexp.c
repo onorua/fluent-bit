@@ -323,7 +323,7 @@ static int cb_regexp_filter(void *data, size_t bytes,
             }
         }
 
-        if (out_buf != NULL)
+        if (ret == REGEXP_RET_MODIFIED)
         {
             msgpack_pack_array(&tmp_pck, 2);
             flb_time_append_to_msgpack(&tm, &tmp_pck, 0);
@@ -340,11 +340,11 @@ static int cb_regexp_filter(void *data, size_t bytes,
             // out_buf = NULL;
             ret = FLB_FILTER_MODIFIED;
         }
-        // else
-        // {
-        //     /* re-use original data*/
-        //     msgpack_pack_object(&tmp_pck, result.data);
-        // }
+        else
+        {
+            /* re-use original data*/
+            msgpack_pack_object(&tmp_pck, result.data);
+        }
         flb_free(kv_map);
         kv_map = NULL;
         msgpack_unpacked_destroy(&result);
