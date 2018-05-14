@@ -130,8 +130,8 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     unsigned char *tmp_ptr;
     allocated = allocate;
 
-    int offset = 0;
-    int len = 0;
+    unsigned long offset = 0;
+    unsigned long len = 0;
     while (true)
     {
         end = (unsigned char *)val + (vlen - offset);
@@ -254,7 +254,7 @@ static int cb_regexp_filter(void *data, size_t bytes,
                             struct flb_config *config)
 {
     int ret = FLB_FILTER_NOTOUCH;
-    int i = 0;
+    unsigned long i = 0;
     msgpack_unpacked result;
     size_t off = 0;
     (void)f_ins;
@@ -319,7 +319,6 @@ static int cb_regexp_filter(void *data, size_t bytes,
                                               (unsigned char **)&out_buf, &out_size);
                     kv_map[i].val = out_buf;
                     kv_map[i].vlen = out_size;
-
                 }
             }
         }
@@ -335,10 +334,10 @@ static int cb_regexp_filter(void *data, size_t bytes,
                 msgpack_pack_str_body(&tmp_pck, kv_map[i].key, kv_map[i].klen);
                 msgpack_pack_str(&tmp_pck, kv_map[i].vlen);
                 msgpack_pack_str_body(&tmp_pck, kv_map[i].val, kv_map[i].vlen);
+                flb_free(kv_map[i].val);
             }
-
-            flb_free(out_buf);
-            out_buf = NULL;
+            // flb_free(out_buf);
+            // out_buf = NULL;
             ret = FLB_FILTER_MODIFIED;
         }
         // else
