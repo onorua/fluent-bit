@@ -163,7 +163,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
         else if (ret == ONIG_MISMATCH)
         {
             break;
-            ret = -1;
+            ret = FLB_FILTER_NOTOUCH;
         }
         else
         { /* error */
@@ -197,7 +197,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     onig_region_free(region, 1 /* 1:free self, 0:free contents only */);
     *out_buf = replaced;
     *out_size = len;
-    return REGEXP_RET_MODIFIED;
+    return FLB_FILTER_MODIFIED;
 }
 
 static int cb_regexp_init(struct flb_filter_instance *f_ins,
@@ -302,8 +302,6 @@ static int cb_regexp_filter(void *data, size_t bytes,
                     /* val is not string */
                     continue;
                 }
-                // kv_map[i].key = key_str;
-                // kv_map[i].klen = key_len;
 
                 if (msgpackobj2char(&kv->val, &kv_map[i].val, &kv_map[i].vlen) < 0)
                 {
@@ -323,7 +321,7 @@ static int cb_regexp_filter(void *data, size_t bytes,
             }
         }
 
-        if (ret == REGEXP_RET_MODIFIED)
+        if (ret == FLB_FILTER_MODIFIED)
         {
             msgpack_pack_array(&tmp_pck, 2);
             flb_time_append_to_msgpack(&tm, &tmp_pck, 0);
@@ -336,9 +334,6 @@ static int cb_regexp_filter(void *data, size_t bytes,
                 msgpack_pack_str_body(&tmp_pck, kv_map[i].val, kv_map[i].vlen);
                 flb_free(kv_map[i].val);
             }
-            // flb_free(out_buf);
-            // out_buf = NULL;
-            ret = FLB_FILTER_MODIFIED;
         }
         else
         {
