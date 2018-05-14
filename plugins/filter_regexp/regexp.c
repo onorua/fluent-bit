@@ -148,7 +148,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
                 if (!tmp_ptr)
                 {
                     flb_error("[in_regexp] could not allocate memory");
-                    flb_free(tmp_ptr);
+                    flb_free(replaced);
                 }
                 replaced = tmp_ptr;
                 allocated = allocate;
@@ -185,7 +185,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
             if (!tmp_ptr)
             {
                 flb_error("[in_regexp] could not allocate memory");
-                flb_free(tmp_ptr);
+                flb_free(replaced);
             }
             replaced = tmp_ptr;
         }
