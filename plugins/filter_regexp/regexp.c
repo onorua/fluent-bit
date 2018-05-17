@@ -49,6 +49,39 @@ static void delete_rules(struct regexp_ctx *ctx)
     }
 }
 
+
+/* string escaping */
+static int json_escape_str(const char *str, int len, unsigned char **out_buf, size_t *out_size)
+{
+    unsigned char * buf = flb_malloc(len * 2 * sizeof(unsigned char));
+    int pos = 0, start_offset = 0;
+    int out_len = 0;
+	unsigned char c;
+	while (len--)
+	{
+		c = str[pos];
+		switch(c)
+		{
+        case '"':
+            memcpy((unsigned char *)buf + out_len, "\\\"", 2);
+            out_len += 2;
+            break;
+        case '\\':
+			memcpy((unsigned char *)buf + out_len, "\\\\", 2);
+            out_len += 2;
+            break;
+		default:
+            memcpy((unsigned char *)buf + out_len, str + start_offset, 1);
+            out_len++;
+		}
+        start_offset = ++pos;
+    }
+    memcpy((unsigned char *)buf + out_len, "\0", 1);
+    *out_size = out_len + 1;
+    *out_buf = buf;
+    return 0;
+}
+
 static int set_rules(struct regexp_ctx *ctx, struct flb_filter_instance *f_ins)
 {
     struct mk_list *head;
@@ -122,7 +155,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     ssize_t ret;
     OnigRegion *region = onig_region_new();
 
-    const long multiplier = 1;
+    const long multiplier = 2;
 
     int allocate = vlen * multiplier;
     int allocated = 0;
@@ -254,6 +287,7 @@ static int cb_regexp_filter(void *data, size_t bytes,
                             struct flb_config *config)
 {
     int ret = FLB_FILTER_NOTOUCH;
+    int jret = 0;
     unsigned long i = 0;
     msgpack_unpacked result;
     size_t off = 0;
@@ -263,6 +297,8 @@ static int cb_regexp_filter(void *data, size_t bytes,
     msgpack_object *obj;
     int map_num;
     unsigned char * out_buf;
+    unsigned char * json_buf;
+    unsigned long json_size;
     size_t out_size;
     struct regexp_ctx *ctx = context;
 
@@ -291,17 +327,15 @@ static int cb_regexp_filter(void *data, size_t bytes,
         if (obj->type == MSGPACK_OBJECT_MAP)
         {
             map_num = obj->via.map.size;
+            // msgpack_object_print(stdout, *obj);
+            // fprintf(stdout, "\n");
             kv_map = flb_malloc(map_num * sizeof(struct mpk_kv));
 
             for (i = 0; i < map_num; i++)
             {
                 kv = &obj->via.map.ptr[i];
 
-                if (msgpackobj2char(&kv->key, &kv_map[i].key, &kv_map[i].klen) < 0)
-                {
-                    /* val is not string */
-                    continue;
-                }
+                kv_map[i].key = &kv->key;
 
                 if (msgpackobj2char(&kv->val, &kv_map[i].val, &kv_map[i].vlen) < 0)
                 {
@@ -315,8 +349,19 @@ static int cb_regexp_filter(void *data, size_t bytes,
 
                     ret = regexp_replace_data(rule, kv_map[i].val, kv_map[i].vlen,
                                               (unsigned char **)&out_buf, &out_size);
-                    kv_map[i].val = out_buf;
-                    kv_map[i].vlen = out_size;
+
+                    if (out_buf[0] == '{')
+                    {
+                        jret = json_escape_str(out_buf, out_size, (unsigned char **)&json_buf, &json_size);
+                        kv_map[i].val = json_buf;
+                        kv_map[i].vlen = json_size;
+                        free(out_buf);
+                    }
+                    else
+                    {
+                        kv_map[i].val = out_buf;
+                        kv_map[i].vlen = out_size;
+                    }
                 }
             }
         }
@@ -328,8 +373,7 @@ static int cb_regexp_filter(void *data, size_t bytes,
 
             msgpack_pack_map(&tmp_pck, map_num);
             for (i = 0; i < map_num; i++) {
-                msgpack_pack_str(&tmp_pck, kv_map[i].klen);
-                msgpack_pack_str_body(&tmp_pck, kv_map[i].key, kv_map[i].klen);
+                msgpack_pack_object(&tmp_pck, *kv_map[i].key);
                 msgpack_pack_str(&tmp_pck, kv_map[i].vlen);
                 msgpack_pack_str_body(&tmp_pck, kv_map[i].val, kv_map[i].vlen);
                 flb_free(kv_map[i].val);

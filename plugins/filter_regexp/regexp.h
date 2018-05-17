@@ -31,10 +31,11 @@ struct regexp_ctx
 };
 
 struct mpk_kv {
+    msgpack_object *key;
+    msgpack_object *mp_val;
     int vlen;
-    int klen;
     char *val;
-    char *key;
+    int packed;
 };
 
 struct regexp_rule
