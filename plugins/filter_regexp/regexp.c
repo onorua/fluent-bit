@@ -39,7 +39,8 @@ static void delete_rules(struct regexp_ctx *ctx)
     struct mk_list *head;
     struct regexp_rule *rule;
 
-    mk_list_foreach_safe(head, tmp, &ctx->rules) {
+    mk_list_foreach_safe(head, tmp, &ctx->rules)
+    {
         rule = mk_list_entry(head, struct regexp_rule, _head);
         flb_free(rule->regex_pattern);
         flb_free(rule->replacement);
@@ -47,39 +48,6 @@ static void delete_rules(struct regexp_ctx *ctx)
         mk_list_del(&rule->_head);
         flb_free(rule);
     }
-}
-
-
-/* string escaping */
-static int json_escape_str(const char *str, int len, unsigned char **out_buf, size_t *out_size)
-{
-    unsigned char * buf = flb_malloc(len * 2 * sizeof(unsigned char));
-    int pos = 0, start_offset = 0;
-    int out_len = 0;
-	unsigned char c;
-	while (len--)
-	{
-		c = str[pos];
-		switch(c)
-		{
-        case '"':
-            memcpy((unsigned char *)buf + out_len, "\\\"", 2);
-            out_len += 2;
-            break;
-        case '\\':
-			memcpy((unsigned char *)buf + out_len, "\\\\", 2);
-            out_len += 2;
-            break;
-		default:
-            memcpy((unsigned char *)buf + out_len, str + start_offset, 1);
-            out_len++;
-		}
-        start_offset = ++pos;
-    }
-    memcpy((unsigned char *)buf + out_len, "\0", 1);
-    *out_size = out_len + 1;
-    *out_buf = buf;
-    return 0;
 }
 
 static int set_rules(struct regexp_ctx *ctx, struct flb_filter_instance *f_ins)
@@ -91,21 +59,25 @@ static int set_rules(struct regexp_ctx *ctx, struct flb_filter_instance *f_ins)
     struct regexp_rule *rule;
 
     /* Iterate all filter properties */
-    mk_list_foreach(head, &f_ins->properties) {
+    mk_list_foreach(head, &f_ins->properties)
+    {
         prop = mk_list_entry(head, struct flb_config_prop, _head);
 
         /* Create a new rule */
         rule = flb_malloc(sizeof(struct regexp_rule));
-        if (!rule) {
+        if (!rule)
+        {
             flb_errno();
             return -1;
         }
 
         /* Get the type */
-        if (strcasecmp(prop->key, "substitude") == 0) {
+        if (strcasecmp(prop->key, "substitude") == 0)
+        {
             rule->type = REGEXP_SUBST;
         }
-        else {
+        else
+        {
             delete_rules(ctx);
             flb_free(rule);
             return -1;
@@ -113,7 +85,8 @@ static int set_rules(struct regexp_ctx *ctx, struct flb_filter_instance *f_ins)
 
         /* As a value we expect a pair of field name and a regular expression */
         split = flb_utils_split(prop->val, ' ', 1);
-        if (mk_list_size(split) != 2) {
+        if (mk_list_size(split) != 2)
+        {
             flb_error("[filter_regexp] invalid configuraion format, expected regular expression and replacement");
             delete_rules(ctx);
             flb_free(rule);
@@ -134,8 +107,9 @@ static int set_rules(struct regexp_ctx *ctx, struct flb_filter_instance *f_ins)
         flb_utils_split_free(split);
 
         /* Convert string to regex pattern */
-        rule->regex = flb_regex_create((unsigned char *) rule->regex_pattern);
-        if (!rule->regex) {
+        rule->regex = flb_regex_create((unsigned char *)rule->regex_pattern);
+        if (!rule->regex)
+        {
             delete_rules(ctx);
             flb_free(rule);
             return -1;
@@ -188,7 +162,7 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
             }
             memcpy((unsigned char *)replaced + len, (unsigned char *)start, region->beg[DEFAULT_INDEX] * sizeof(unsigned char));
             len += region->beg[DEFAULT_INDEX];
-            memcpy((unsigned char *)replaced + len, (unsigned char *)rule->replacement, rule->replacement_len * sizeof(unsigned char) );
+            memcpy((unsigned char *)replaced + len, (unsigned char *)rule->replacement, rule->replacement_len * sizeof(unsigned char));
             offset += region->end[DEFAULT_INDEX];
             len += rule->replacement_len;
             val = val + region->end[DEFAULT_INDEX];
@@ -234,15 +208,16 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
 }
 
 static int cb_regexp_init(struct flb_filter_instance *f_ins,
-                        struct flb_config *config,
-                        void *data)
+                          struct flb_config *config,
+                          void *data)
 {
     int ret;
     struct regexp_ctx *ctx;
 
     /* Create context */
     ctx = flb_malloc(sizeof(struct regexp_ctx));
-    if (!ctx) {
+    if (!ctx)
+    {
         flb_errno();
         return -1;
     }
@@ -250,7 +225,8 @@ static int cb_regexp_init(struct flb_filter_instance *f_ins,
 
     /* Load rules */
     ret = set_rules(ctx, f_ins);
-    if (ret == -1) {
+    if (ret == -1)
+    {
         flb_free(ctx);
         return -1;
     }
@@ -258,25 +234,6 @@ static int cb_regexp_init(struct flb_filter_instance *f_ins,
     /* Set our context */
     flb_filter_set_context(f_ins, ctx);
     return 0;
-}
-
-static int msgpackobj2char(msgpack_object *obj,
-                           char **ret_char, int *ret_char_size)
-{
-    int ret = -1;
-
-    if (obj->type == MSGPACK_OBJECT_STR) {
-        *ret_char      = (char*)obj->via.str.ptr;
-        *ret_char_size = obj->via.str.size;
-        ret = 0;
-    }
-    else if (obj->type == MSGPACK_OBJECT_BIN) {
-        *ret_char      = (char*)obj->via.bin.ptr;
-        *ret_char_size = obj->via.bin.size;
-        ret = 0;
-    }
-
-    return ret;
 }
 
 static int cb_regexp_filter(void *data, size_t bytes,
@@ -287,28 +244,26 @@ static int cb_regexp_filter(void *data, size_t bytes,
                             struct flb_config *config)
 {
     int ret = FLB_FILTER_NOTOUCH;
-    int jret = 0;
-    unsigned long i = 0;
     msgpack_unpacked result;
     size_t off = 0;
     (void)f_ins;
     (void)config;
     struct flb_time tm;
     msgpack_object *obj;
-    int map_num;
-    unsigned char * out_buf;
-    unsigned char * json_buf;
-    unsigned long json_size;
+    unsigned char *out_buf;
+    unsigned char *mp_buf;
+    size_t mp_size;
+    unsigned char *json_buf;
+    size_t json_size;
     size_t out_size;
     struct regexp_ctx *ctx = context;
 
-    msgpack_object_kv *kv;
     msgpack_sbuffer tmp_sbuf;
     msgpack_packer tmp_pck;
 
     struct mk_list *head;
     struct regexp_rule *rule;
-    struct mpk_kv *kv_map;
+    int alloc_size;
 
     /* Create temporal msgpack buffer */
     msgpack_sbuffer_init(&tmp_sbuf);
@@ -326,75 +281,34 @@ static int cb_regexp_filter(void *data, size_t bytes,
         flb_time_pop_from_msgpack(&tm, &result, &obj);
         if (obj->type == MSGPACK_OBJECT_MAP)
         {
-            map_num = obj->via.map.size;
-            // msgpack_object_print(stdout, *obj);
-            // fprintf(stdout, "\n");
-            kv_map = flb_malloc(map_num * sizeof(struct mpk_kv));
+            alloc_size = (off) + 128; /* JSON is larger than msgpack */
+            json_buf = flb_msgpack_to_json_str(alloc_size, obj);
+            json_size = strlen(json_buf);
 
-            for (i = 0; i < map_num; i++)
+            mk_list_foreach(head, &ctx->rules)
             {
-                kv = &obj->via.map.ptr[i];
+                rule = mk_list_entry(head, struct regexp_rule, _head);
 
-                kv_map[i].key = &kv->key;
-
-                if (msgpackobj2char(&kv->val, &kv_map[i].val, &kv_map[i].vlen) < 0)
-                {
-                    /* val is not string */
-                    continue;
-                }
-                /* Lookup parser */
-                mk_list_foreach(head, &ctx->rules)
-                {
-                    rule = mk_list_entry(head, struct regexp_rule, _head);
-
-                    ret = regexp_replace_data(rule, kv_map[i].val, kv_map[i].vlen,
-                                              (unsigned char **)&out_buf, &out_size);
-
-                    if (out_buf[0] == '{')
-                    {
-                        jret = json_escape_str(out_buf, out_size, (unsigned char **)&json_buf, &json_size);
-                        kv_map[i].val = json_buf;
-                        kv_map[i].vlen = json_size;
-                        free(out_buf);
-                    }
-                    else
-                    {
-                        kv_map[i].val = out_buf;
-                        kv_map[i].vlen = out_size;
-                    }
-                }
+                ret = regexp_replace_data(rule, json_buf, json_size,
+                                          (unsigned char **)&out_buf, &out_size);
+                flb_pack_json(out_buf, out_size, (unsigned char **)&mp_buf, &mp_size);
+                msgpack_pack_array(&tmp_pck, 2);
+                flb_time_append_to_msgpack(&tm, &tmp_pck, 0);
+                msgpack_sbuffer_write(&tmp_sbuf, mp_buf, mp_size);
+                /* cleanup */
+                flb_free(mp_buf);
+                flb_free(out_buf);
+                flb_free(json_buf);
             }
         }
-
-        if (ret == FLB_FILTER_MODIFIED)
-        {
-            msgpack_pack_array(&tmp_pck, 2);
-            flb_time_append_to_msgpack(&tm, &tmp_pck, 0);
-
-            msgpack_pack_map(&tmp_pck, map_num);
-            for (i = 0; i < map_num; i++) {
-                msgpack_pack_object(&tmp_pck, *kv_map[i].key);
-                msgpack_pack_str(&tmp_pck, kv_map[i].vlen);
-                msgpack_pack_str_body(&tmp_pck, kv_map[i].val, kv_map[i].vlen);
-                flb_free(kv_map[i].val);
-            }
-        }
-        else
-        {
-            /* re-use original data*/
-            msgpack_pack_object(&tmp_pck, result.data);
-        }
-        flb_free(kv_map);
-        kv_map = NULL;
-        msgpack_unpacked_destroy(&result);
     }
 
     /* link new buffers */
     *ret_buf = tmp_sbuf.data;
     *ret_size = tmp_sbuf.size;
+    msgpack_unpacked_destroy(&result);
     return ret;
 }
-
 
 static int cb_regexp_exit(void *data, struct flb_config *config)
 {
@@ -406,10 +320,9 @@ static int cb_regexp_exit(void *data, struct flb_config *config)
 }
 
 struct flb_filter_plugin filter_regexp_plugin = {
-    .name         = "regexp",
-    .description  = "regexp events by specified field values",
-    .cb_init      = cb_regexp_init,
-    .cb_filter    = cb_regexp_filter,
-    .cb_exit      = cb_regexp_exit,
-    .flags        = 0
-};
+    .name = "regexp",
+    .description = "regexp events by specified field values",
+    .cb_init = cb_regexp_init,
+    .cb_filter = cb_regexp_filter,
+    .cb_exit = cb_regexp_exit,
+    .flags = 0};

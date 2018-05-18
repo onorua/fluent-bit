@@ -30,14 +30,6 @@ struct regexp_ctx
     struct mk_list rules;
 };
 
-struct mpk_kv {
-    msgpack_object *key;
-    msgpack_object *mp_val;
-    int vlen;
-    char *val;
-    int packed;
-};
-
 struct regexp_rule
 {
     int type;
