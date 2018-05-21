@@ -195,8 +195,8 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     }
 
     onig_region_free(region, 1 /* 1:free self, 0:free contents only */);
-    *out_buf = replaced;
     *out_size = len;
+    *out_buf = replaced;
     return FLB_FILTER_MODIFIED;
 }
 
@@ -227,24 +227,104 @@ static int cb_regexp_init(struct flb_filter_instance *f_ins,
     return 0;
 }
 
-static int msgpackobj2char(msgpack_object *obj,
-                           char **ret_char, int *ret_char_size)
+static int msgpack_handler(msgpack_packer *pk, struct regexp_rule *rule, msgpack_object d)
 {
-    int ret = -1;
+    int ret = FLB_FALSE;
 
-    if (obj->type == MSGPACK_OBJECT_STR) {
-        *ret_char      = (char*)obj->via.str.ptr;
-        *ret_char_size = obj->via.str.size;
-        ret = 0;
+    switch(d.type) {
+    case MSGPACK_OBJECT_NIL:
+        msgpack_pack_nil(pk);
+        break;
+
+    case MSGPACK_OBJECT_BOOLEAN:
+        if (d.via.boolean)
+        {
+            return msgpack_pack_true(pk);
+        }
+        else
+        {
+            return msgpack_pack_false(pk);
+        }
+        break;
+
+    case MSGPACK_OBJECT_POSITIVE_INTEGER:
+        msgpack_pack_uint64(pk, d.via.u64);
+        break;
+
+    case MSGPACK_OBJECT_NEGATIVE_INTEGER:
+        msgpack_pack_int64(pk, d.via.i64);
+        break;
+
+    case MSGPACK_OBJECT_FLOAT32:
+        msgpack_pack_float(pk, (float)d.via.f64);
+        break;
+
+    case MSGPACK_OBJECT_FLOAT64:
+        msgpack_pack_double(pk, d.via.f64);
+        break;
+
+    case MSGPACK_OBJECT_STR:
+        {
+            unsigned char *str_buf;
+            size_t str_size;
+            int ret = regexp_replace_data(rule, d.via.str.ptr, d.via.str.size,
+                                     (unsigned char **)&str_buf, &str_size);
+            ret = msgpack_pack_str(pk, str_size);
+            if(ret < 0) { return ret; }
+            msgpack_pack_str_body(pk, str_buf, str_size);
+            free(str_buf);
+        }
+        break;
+
+    case MSGPACK_OBJECT_BIN:
+    {
+        unsigned char *bin_buf;
+        size_t bin_size;
+        int ret = regexp_replace_data(rule, d.via.bin.ptr, d.via.bin.size,
+                                      (unsigned char **)&bin_buf, &bin_size);
+        ret = msgpack_pack_bin(pk, bin_size);
+        if (ret < 0) { return ret; }
+        msgpack_pack_bin_body(pk, bin_buf, bin_size);
+        free(bin_buf);
     }
-    else if (obj->type == MSGPACK_OBJECT_BIN) {
-        *ret_char      = (char*)obj->via.bin.ptr;
-        *ret_char_size = obj->via.bin.size;
-        ret = 0;
+    break;
+
+    case MSGPACK_OBJECT_EXT:
+    {
+        int ret = msgpack_pack_ext(pk, d.via.ext.size, d.via.ext.type);
+        if (ret < 0) { return ret; }
+        msgpack_pack_ext_body(pk, d.via.ext.ptr, d.via.ext.size);
+        break;
+    }
+
+    case MSGPACK_OBJECT_ARRAY:
+        msgpack_pack_array(pk, d.via.array.size);
+        msgpack_object *o = d.via.array.ptr;
+        msgpack_object *const oend = d.via.array.ptr + d.via.array.size;
+        for (; o != oend; ++o)
+        {
+            msgpack_handler(pk, rule, *o);
+        }
+        break;
+
+    case MSGPACK_OBJECT_MAP:
+        msgpack_pack_map(pk, d.via.map.size);
+        msgpack_object_kv *kv = d.via.map.ptr;
+        msgpack_object_kv *const kvend = d.via.map.ptr + d.via.map.size;
+        for (; kv != kvend; ++kv)
+        {
+            msgpack_handler(pk, rule, kv->key);
+            msgpack_handler(pk, rule, kv->val);
+        }
+        break;
+
+    default:
+        flb_warn("[%s] unknown msgpack type %i", __FUNCTION__, d.type);
     }
 
     return ret;
 }
+
 
 static int cb_regexp_filter(void *data, size_t bytes,
                             char *tag, int tag_len,
@@ -253,26 +333,18 @@ static int cb_regexp_filter(void *data, size_t bytes,
                             void *context,
                             struct flb_config *config)
 {
-    int ret = FLB_FILTER_NOTOUCH;
-    unsigned long i = 0;
+    int ret = FLB_FILTER_MODIFIED;
     msgpack_unpacked result;
     size_t off = 0;
     (void)f_ins;
     (void)config;
-    struct flb_time tm;
-    msgpack_object *obj;
-    int map_num;
-    unsigned char * out_buf;
-    size_t out_size;
     struct regexp_ctx *ctx = context;
 
-    msgpack_object_kv *kv;
     msgpack_sbuffer tmp_sbuf;
     msgpack_packer tmp_pck;
 
     struct mk_list *head;
     struct regexp_rule *rule;
-    struct mpk_kv *kv_map;
 
     /* Create temporal msgpack buffer */
     msgpack_sbuffer_init(&tmp_sbuf);
@@ -282,67 +354,12 @@ static int cb_regexp_filter(void *data, size_t bytes,
     msgpack_unpacked_init(&result);
     while (msgpack_unpack_next(&result, data, bytes, &off))
     {
-        out_buf = NULL;
-        if (result.data.type != MSGPACK_OBJECT_ARRAY)
-        {
-            continue;
-        }
-        flb_time_pop_from_msgpack(&tm, &result, &obj);
-        if (obj->type == MSGPACK_OBJECT_MAP)
-        {
-            map_num = obj->via.map.size;
-            kv_map = flb_malloc(map_num * sizeof(struct mpk_kv));
-
-            for (i = 0; i < map_num; i++)
-            {
-                kv = &obj->via.map.ptr[i];
-
-                if (msgpackobj2char(&kv->key, &kv_map[i].key, &kv_map[i].klen) < 0)
-                {
-                    /* val is not string */
-                    continue;
-                }
-
-                if (msgpackobj2char(&kv->val, &kv_map[i].val, &kv_map[i].vlen) < 0)
-                {
-                    /* val is not string */
-                    continue;
-                }
                 /* Lookup parser */
                 mk_list_foreach(head, &ctx->rules)
                 {
                     rule = mk_list_entry(head, struct regexp_rule, _head);
-
-                    ret = regexp_replace_data(rule, kv_map[i].val, kv_map[i].vlen,
-                                              (unsigned char **)&out_buf, &out_size);
-                    kv_map[i].val = out_buf;
-                    kv_map[i].vlen = out_size;
+                    msgpack_handler(&tmp_pck, rule, result.data);
                 }
-            }
-        }
-
-        if (ret == FLB_FILTER_MODIFIED)
-        {
-            msgpack_pack_array(&tmp_pck, 2);
-            flb_time_append_to_msgpack(&tm, &tmp_pck, 0);
-
-            msgpack_pack_map(&tmp_pck, map_num);
-            for (i = 0; i < map_num; i++) {
-                msgpack_pack_str(&tmp_pck, kv_map[i].klen);
-                msgpack_pack_str_body(&tmp_pck, kv_map[i].key, kv_map[i].klen);
-                msgpack_pack_str(&tmp_pck, kv_map[i].vlen);
-                msgpack_pack_str_body(&tmp_pck, kv_map[i].val, kv_map[i].vlen);
-                flb_free(kv_map[i].val);
-            }
-        }
-        else
-        {
-            /* re-use original data*/
-            msgpack_pack_object(&tmp_pck, result.data);
-        }
-        flb_free(kv_map);
-        kv_map = NULL;
-        msgpack_unpacked_destroy(&result);
     }
 
     /* link new buffers */
