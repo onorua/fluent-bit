@@ -20,21 +20,20 @@
 #include <stdio.h>
 #include <sys/types.h>
 
+#include <fluent-bit/flb_filter.h>
 #include <fluent-bit/flb_info.h>
 #include <fluent-bit/flb_mem.h>
-#include <fluent-bit/flb_str.h>
-#include <fluent-bit/flb_filter.h>
-#include <fluent-bit/flb_utils.h>
 #include <fluent-bit/flb_pack.h>
-#include <fluent-bit/flb_regex.h>
 #include <fluent-bit/flb_parser.h>
+#include <fluent-bit/flb_regex.h>
+#include <fluent-bit/flb_str.h>
+#include <fluent-bit/flb_utils.h>
 #include <msgpack.h>
 #include "onigmo.h"
 
 #include "regexp.h"
 
-static void delete_rules(struct regexp_ctx *ctx)
-{
+static void delete_rules(struct regexp_ctx *ctx) {
     struct mk_list *tmp;
     struct mk_list *head;
     struct regexp_rule *rule;
@@ -49,8 +48,8 @@ static void delete_rules(struct regexp_ctx *ctx)
     }
 }
 
-static int set_rules(struct regexp_ctx *ctx, struct flb_filter_instance *f_ins)
-{
+static int set_rules(struct regexp_ctx *ctx,
+                     struct flb_filter_instance *f_ins) {
     struct mk_list *head;
     struct mk_list *split;
     struct flb_split_entry *sentry;
@@ -71,8 +70,9 @@ static int set_rules(struct regexp_ctx *ctx, struct flb_filter_instance *f_ins)
         /* Get the type */
         if (strcasecmp(prop->key, "substitude") == 0) {
             rule->type = REGEXP_SUBST;
-        }
-        else {
+        } else if (strcasecmp(prop->key, "skip") == 0) {
+            rule->type = REGEXP_SKIP;
+        } else {
             delete_rules(ctx);
             flb_free(rule);
             return -1;
@@ -80,8 +80,10 @@ static int set_rules(struct regexp_ctx *ctx, struct flb_filter_instance *f_ins)
 
         /* As a value we expect a pair of field name and a regular expression */
         split = flb_utils_split(prop->val, ' ', 1);
-        if (mk_list_size(split) != 2) {
-            flb_error("[filter_regexp] invalid configuraion format, expected regular expression and replacement");
+        if (mk_list_size(split) != 2 && rule->type != REGEXP_SKIP) {
+            flb_error(
+                "[filter_regexp] invalid configuraion format, expected regular "
+                "expression and replacement");
             delete_rules(ctx);
             flb_free(rule);
             flb_utils_split_free(split);
@@ -92,16 +94,18 @@ static int set_rules(struct regexp_ctx *ctx, struct flb_filter_instance *f_ins)
         sentry = mk_list_entry_first(split, struct flb_split_entry, _head);
         rule->regex_pattern = flb_strndup(sentry->value, sentry->len);
 
-        /* Get remaining content (regular expression) */
-        sentry = mk_list_entry_last(split, struct flb_split_entry, _head);
-        rule->replacement = flb_strndup(sentry->value, sentry->len);
-        rule->replacement_len = strlen(rule->replacement);
+        if (rule->type == REGEXP_SUBST) {
+            /* Get remaining content (regular expression) */
+            sentry = mk_list_entry_last(split, struct flb_split_entry, _head);
+            rule->replacement = flb_strndup(sentry->value, sentry->len);
+            rule->replacement_len = strlen(rule->replacement);
+        }
 
         /* Release split */
         flb_utils_split_free(split);
 
         /* Convert string to regex pattern */
-        rule->regex = flb_regex_create((unsigned char *) rule->regex_pattern);
+        rule->regex = flb_regex_create((unsigned char *)rule->regex_pattern);
         if (!rule->regex) {
             delete_rules(ctx);
             flb_free(rule);
@@ -116,8 +120,9 @@ static int set_rules(struct regexp_ctx *ctx, struct flb_filter_instance *f_ins)
 }
 
 /* Given a msgpack record, do some filter action based on the defined rules */
-static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_t vlen, unsigned char **out_buf, size_t *out_size)
-{
+static inline int regexp_replace_data(struct regexp_rule *rule, char *val,
+                                      size_t vlen, unsigned char **out_buf,
+                                      size_t *out_size) {
     unsigned char *start, *range, *end;
     ssize_t ret;
     OnigRegion *region = onig_region_new();
@@ -132,41 +137,38 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
 
     unsigned long offset = 0;
     unsigned long len = 0;
-    while (true)
-    {
+    while (true) {
         end = (unsigned char *)val + (vlen - offset);
         range = end;
         start = (unsigned char *)val;
-        ret = onig_search(rule->regex->regex, (unsigned char *)val, end, start, range, region, ONIG_OPTION_NONE);
+        ret = onig_search(rule->regex->regex, (unsigned char *)val, end, start,
+                          range, region, ONIG_OPTION_NONE);
         /* we have got a match */
-        if (ret >= 0)
-        {
-            if (allocated < vlen + rule->replacement_len)
-            {
+        if (ret >= 0) {
+            if (allocated < vlen + rule->replacement_len) {
                 allocate = (vlen + rule->replacement_len) * multiplier;
-                tmp_ptr = flb_realloc(replaced, allocate * sizeof(unsigned char));
-                if (!tmp_ptr)
-                {
+                tmp_ptr =
+                    flb_realloc(replaced, allocate * sizeof(unsigned char));
+                if (!tmp_ptr) {
                     flb_error("[in_regexp] could not allocate memory");
                     flb_free(replaced);
                 }
                 replaced = tmp_ptr;
                 allocated = allocate;
             }
-            memcpy((unsigned char *)replaced + len, (unsigned char *)start, region->beg[DEFAULT_INDEX] * sizeof(unsigned char));
+            memcpy((unsigned char *)replaced + len, (unsigned char *)start,
+                   region->beg[DEFAULT_INDEX] * sizeof(unsigned char));
             len += region->beg[DEFAULT_INDEX];
-            memcpy((unsigned char *)replaced + len, (unsigned char *)rule->replacement, rule->replacement_len * sizeof(unsigned char) );
+            memcpy((unsigned char *)replaced + len,
+                   (unsigned char *)rule->replacement,
+                   rule->replacement_len * sizeof(unsigned char));
             offset += region->end[DEFAULT_INDEX];
             len += rule->replacement_len;
             val = val + region->end[DEFAULT_INDEX];
-        }
-        else if (ret == ONIG_MISMATCH)
-        {
+        } else if (ret == ONIG_MISMATCH) {
             break;
             ret = FLB_FILTER_NOTOUCH;
-        }
-        else
-        { /* error */
+        } else { /* error */
             OnigUChar s[ONIG_MAX_ERROR_MESSAGE_LEN];
             onig_error_code_to_str(s, ret);
             fprintf(stderr, "ERROR: %s\n", s);
@@ -176,20 +178,18 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
 
     onig_region_free(region, 0 /* 1:free self, 0:free contents only */);
     // Add any text after the last match
-    if (offset < vlen)
-    {
-        if (allocated < len + (vlen - offset))
-        {
+    if (offset < vlen) {
+        if (allocated < len + (vlen - offset)) {
             allocate = len + (vlen - offset);
             tmp_ptr = flb_realloc(replaced, allocate * sizeof(unsigned char));
-            if (!tmp_ptr)
-            {
+            if (!tmp_ptr) {
                 flb_error("[in_regexp] could not allocate memory");
                 flb_free(replaced);
             }
             replaced = tmp_ptr;
         }
-        memcpy((unsigned char *)replaced + len, (unsigned char *)val, (vlen - offset) * sizeof(unsigned char));
+        memcpy((unsigned char *)replaced + len, (unsigned char *)val,
+               (vlen - offset) * sizeof(unsigned char));
         len += vlen - offset;
         offset = 0;
     }
@@ -200,10 +200,88 @@ static inline int regexp_replace_data(struct regexp_rule *rule, char *val, size_
     return FLB_FILTER_MODIFIED;
 }
 
+/* Given a msgpack record, match based on the defined rule */
+static inline int regexp_match_data(struct regexp_rule *rule, char *val,
+                                    size_t vlen) {
+    unsigned char *start, *range, *end;
+    ssize_t ret;
+    OnigRegion *region = onig_region_new();
+
+    unsigned long offset = 0;
+
+    end = (unsigned char *)val + (vlen - offset);
+    range = end;
+    start = (unsigned char *)val;
+    ret = onig_search(rule->regex->regex, (unsigned char *)val, end, start,
+                      range, region, ONIG_OPTION_NONE);
+    /* we have got a match */
+    if (ret >= 0) {
+        // we have got a match
+        ret = REGEXP_SKIP;
+    } else if (ret == ONIG_MISMATCH) {
+        ret = FLB_FILTER_NOTOUCH;
+    } else { /* error */
+        OnigUChar s[ONIG_MAX_ERROR_MESSAGE_LEN];
+        onig_error_code_to_str(s, ret);
+        fprintf(stderr, "ERROR: %s\n", s);
+        return -1;
+    }
+
+    onig_region_free(region, 1 /* 1:free self, 0:free contents only */);
+    return ret;
+}
+
+static inline int apply_mutations(void *context, char *val, size_t vlen,
+                                  unsigned char **out_buf, size_t *out_size) {
+    struct mk_list *head;
+    struct regexp_rule *rule;
+    struct regexp_ctx *ctx = context;
+    unsigned char *buf, *tmp_ptr;
+    size_t buf_size;
+
+    unsigned char *tmp_buf;
+    size_t tmp_size;
+
+    buf = val;
+    buf_size = vlen;
+    tmp_ptr = flb_malloc(vlen);
+    tmp_buf = tmp_ptr;
+    memcpy(tmp_buf, val, vlen);
+    tmp_size = vlen;
+
+    int ret;
+
+    /* Lookup parser */
+    mk_list_foreach(head, &ctx->rules) {
+        rule = mk_list_entry(head, struct regexp_rule, _head);
+
+        switch (rule->type) {
+            case REGEXP_SKIP: {
+                ret = regexp_match_data(rule, buf, buf_size);
+                if (ret == REGEXP_SKIP) {
+                    flb_free(tmp_buf);
+                    return ret;
+                }
+                break;
+            }
+            case REGEXP_SUBST: {
+                ret = regexp_replace_data(
+                    rule, buf, buf_size, (unsigned char **)&tmp_buf, &tmp_size);
+                buf = tmp_buf;
+                buf_size = tmp_size;
+                break;
+            }
+        }
+    }
+
+    *out_buf = tmp_buf;
+    *out_size = tmp_size;
+
+    return FLB_FILTER_MODIFIED;
+}
+
 static int cb_regexp_init(struct flb_filter_instance *f_ins,
-                        struct flb_config *config,
-                        void *data)
-{
+                          struct flb_config *config, void *data) {
     int ret;
     struct regexp_ctx *ctx;
 
@@ -227,123 +305,145 @@ static int cb_regexp_init(struct flb_filter_instance *f_ins,
     return 0;
 }
 
-static int msgpack_handler(msgpack_packer *pk, struct regexp_rule *rule, msgpack_object d)
-{
+static int msgpack_handler(msgpack_packer *pk, void *context,
+                           msgpack_object d) {
     int ret = FLB_FALSE;
+    struct mk_list *head;
+    struct regexp_rule *rule;
+    struct regexp_ctx *ctx = context;
 
-    switch(d.type) {
-    case MSGPACK_OBJECT_NIL:
-        msgpack_pack_nil(pk);
-        break;
+    mk_list_foreach(head, &ctx->rules) {
+        rule = mk_list_entry(head, struct regexp_rule, _head);
+    }
 
-    case MSGPACK_OBJECT_BOOLEAN:
-        if (d.via.boolean)
-        {
-            return msgpack_pack_true(pk);
-        }
-        else
-        {
-            return msgpack_pack_false(pk);
-        }
-        break;
+    switch (d.type) {
+        case MSGPACK_OBJECT_NIL:
+            msgpack_pack_nil(pk);
+            break;
 
-    case MSGPACK_OBJECT_POSITIVE_INTEGER:
-        msgpack_pack_uint64(pk, d.via.u64);
-        break;
+        case MSGPACK_OBJECT_BOOLEAN:
+            if (d.via.boolean) {
+                return msgpack_pack_true(pk);
+            } else {
+                return msgpack_pack_false(pk);
+            }
+            break;
 
-    case MSGPACK_OBJECT_NEGATIVE_INTEGER:
-        msgpack_pack_int64(pk, d.via.i64);
-        break;
+        case MSGPACK_OBJECT_POSITIVE_INTEGER:
+            msgpack_pack_uint64(pk, d.via.u64);
+            break;
 
-    case MSGPACK_OBJECT_FLOAT32:
-        msgpack_pack_float(pk, (float)d.via.f64);
-        break;
+        case MSGPACK_OBJECT_NEGATIVE_INTEGER:
+            msgpack_pack_int64(pk, d.via.i64);
+            break;
 
-    case MSGPACK_OBJECT_FLOAT64:
-        msgpack_pack_double(pk, d.via.f64);
-        break;
+        case MSGPACK_OBJECT_FLOAT32:
+            msgpack_pack_float(pk, (float)d.via.f64);
+            break;
 
-    case MSGPACK_OBJECT_STR:
-        {
+        case MSGPACK_OBJECT_FLOAT64:
+            msgpack_pack_double(pk, d.via.f64);
+            break;
+
+        case MSGPACK_OBJECT_STR: {
             unsigned char *str_buf;
             size_t str_size;
-            int ret = regexp_replace_data(rule, d.via.str.ptr, d.via.str.size,
-                                     (unsigned char **)&str_buf, &str_size);
-            ret = msgpack_pack_str(pk, str_size);
-            if(ret < 0) { return ret; }
-            msgpack_pack_str_body(pk, str_buf, str_size);
-            free(str_buf);
-        }
-        break;
 
-    case MSGPACK_OBJECT_BIN:
-    {
-        unsigned char *bin_buf;
-        size_t bin_size;
-        int ret = regexp_replace_data(rule, d.via.bin.ptr, d.via.bin.size,
+            int ret = apply_mutations(ctx, d.via.str.ptr, d.via.str.size,
+                                      (unsigned char **)&str_buf, &str_size);
+
+            if (ret == REGEXP_SKIP) {
+                ret = msgpack_pack_str(pk, d.via.str.size);
+                if (ret < 0) {
+                    return ret;
+                }
+                msgpack_pack_str_body(pk, d.via.str.ptr, d.via.str.size);
+                return REGEXP_SKIP;
+            } else {
+                ret = msgpack_pack_str(pk, str_size);
+                if (ret < 0) {
+                    return ret;
+                }
+                msgpack_pack_str_body(pk, str_buf, str_size);
+                free(str_buf);
+            }
+        } break;
+
+        case MSGPACK_OBJECT_BIN: {
+            unsigned char *bin_buf;
+            size_t bin_size;
+
+            int ret = apply_mutations(ctx, d.via.bin.ptr, d.via.bin.size,
                                       (unsigned char **)&bin_buf, &bin_size);
-        ret = msgpack_pack_bin(pk, bin_size);
-        if (ret < 0) { return ret; }
-        msgpack_pack_bin_body(pk, bin_buf, bin_size);
-        free(bin_buf);
-    }
-    break;
 
-    case MSGPACK_OBJECT_EXT:
-    {
-        int ret = msgpack_pack_ext(pk, d.via.ext.size, d.via.ext.type);
-        if (ret < 0) { return ret; }
-        msgpack_pack_ext_body(pk, d.via.ext.ptr, d.via.ext.size);
-        break;
-    }
+            if (ret == REGEXP_SKIP) {
+                ret = msgpack_pack_bin(pk, d.via.bin.size);
+                if (ret < 0) {
+                    return ret;
+                }
+                msgpack_pack_bin_body(pk, d.via.bin.ptr, d.via.bin.size);
+                return REGEXP_SKIP;
+            } else {
+                ret = msgpack_pack_bin(pk, bin_size);
+                if (ret < 0) {
+                    return ret;
+                }
+                msgpack_pack_bin_body(pk, bin_buf, bin_size);
+                free(bin_buf);
+            }
 
-    case MSGPACK_OBJECT_ARRAY:
-        msgpack_pack_array(pk, d.via.array.size);
-        msgpack_object *o = d.via.array.ptr;
-        msgpack_object *const oend = d.via.array.ptr + d.via.array.size;
-        for (; o != oend; ++o)
-        {
-            msgpack_handler(pk, rule, *o);
+        } break;
+
+        case MSGPACK_OBJECT_EXT: {
+            ret = msgpack_pack_ext(pk, d.via.ext.size, d.via.ext.type);
+            if (ret < 0) {
+                return ret;
+            }
+            msgpack_pack_ext_body(pk, d.via.ext.ptr, d.via.ext.size);
+            break;
         }
-        break;
 
-    case MSGPACK_OBJECT_MAP:
-        msgpack_pack_map(pk, d.via.map.size);
-        msgpack_object_kv *kv = d.via.map.ptr;
-        msgpack_object_kv *const kvend = d.via.map.ptr + d.via.map.size;
-        for (; kv != kvend; ++kv)
-        {
-            msgpack_handler(pk, rule, kv->key);
-            msgpack_handler(pk, rule, kv->val);
-        }
-        break;
+        case MSGPACK_OBJECT_ARRAY:
+            msgpack_pack_array(pk, d.via.array.size);
+            msgpack_object *o = d.via.array.ptr;
+            msgpack_object *const oend = d.via.array.ptr + d.via.array.size;
+            for (; o != oend; ++o) {
+                msgpack_handler(pk, ctx, *o);
+            }
+            break;
 
-    default:
-        flb_warn("[%s] unknown msgpack type %i", __FUNCTION__, d.type);
+        case MSGPACK_OBJECT_MAP:
+            msgpack_pack_map(pk, d.via.map.size);
+            msgpack_object_kv *kv = d.via.map.ptr;
+            msgpack_object_kv *const kvend = d.via.map.ptr + d.via.map.size;
+            for (; kv != kvend; ++kv) {
+                ret = msgpack_handler(pk, ctx, kv->key);
+                ret = msgpack_handler(pk, ctx, kv->val);
+            }
+            break;
+
+        default:
+            flb_warn("[%s] unknown msgpack type %i", __FUNCTION__, d.type);
     }
 
     return ret;
 }
 
-
-static int cb_regexp_filter(void *data, size_t bytes,
-                            char *tag, int tag_len,
+static int cb_regexp_filter(void *data, size_t bytes, char *tag, int tag_len,
                             void **ret_buf, size_t *ret_size,
-                            struct flb_filter_instance *f_ins,
-                            void *context,
-                            struct flb_config *config)
-{
+                            struct flb_filter_instance *f_ins, void *context,
+                            struct flb_config *config) {
     int ret = FLB_FILTER_MODIFIED;
     msgpack_unpacked result;
     size_t off = 0;
     (void)f_ins;
     (void)config;
-    struct regexp_ctx *ctx = context;
 
     msgpack_sbuffer tmp_sbuf;
     msgpack_packer tmp_pck;
-
     struct mk_list *head;
+
+    struct regexp_ctx *ctx = context;
     struct regexp_rule *rule;
 
     /* Create temporal msgpack buffer */
@@ -352,14 +452,12 @@ static int cb_regexp_filter(void *data, size_t bytes,
 
     /* Iterate each item array and apply rules */
     msgpack_unpacked_init(&result);
-    while (msgpack_unpack_next(&result, data, bytes, &off))
-    {
-                /* Lookup parser */
-                mk_list_foreach(head, &ctx->rules)
-                {
-                    rule = mk_list_entry(head, struct regexp_rule, _head);
-                    msgpack_handler(&tmp_pck, rule, result.data);
-                }
+    while (msgpack_unpack_next(&result, data, bytes, &off)) {
+        /* Lookup parser */
+        mk_list_foreach(head, &ctx->rules) {
+            rule = mk_list_entry(head, struct regexp_rule, _head);
+        }
+        msgpack_handler(&tmp_pck, ctx, result.data);
     }
 
     /* link new buffers */
@@ -368,9 +466,7 @@ static int cb_regexp_filter(void *data, size_t bytes,
     return ret;
 }
 
-
-static int cb_regexp_exit(void *data, struct flb_config *config)
-{
+static int cb_regexp_exit(void *data, struct flb_config *config) {
     struct regexp_ctx *ctx = data;
 
     delete_rules(ctx);
@@ -379,10 +475,9 @@ static int cb_regexp_exit(void *data, struct flb_config *config)
 }
 
 struct flb_filter_plugin filter_regexp_plugin = {
-    .name         = "regexp",
-    .description  = "regexp events by specified field values",
-    .cb_init      = cb_regexp_init,
-    .cb_filter    = cb_regexp_filter,
-    .cb_exit      = cb_regexp_exit,
-    .flags        = 0
-};
+    .name = "regexp",
+    .description = "regexp events by specified field values",
+    .cb_init = cb_regexp_init,
+    .cb_filter = cb_regexp_filter,
+    .cb_exit = cb_regexp_exit,
+    .flags = 0};

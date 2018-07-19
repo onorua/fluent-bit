@@ -21,17 +21,17 @@
 #define FLB_FILTER_REGEXP_H
 
 /* rule types */
-#define REGEXP_SUBST 1
+#define REGEXP_SUBST 41
+#define REGEXP_SKIP 42
+#define REGEXP_CONTINUE 43
 
 #define DEFAULT_INDEX 0
 
-struct regexp_ctx
-{
+struct regexp_ctx {
     struct mk_list rules;
 };
 
-struct regexp_rule
-{
+struct regexp_rule {
     int type;
     int replacement_len;
     char *regex_pattern;
