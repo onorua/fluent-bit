@@ -308,13 +308,7 @@ static int cb_regexp_init(struct flb_filter_instance *f_ins,
 static int msgpack_handler(msgpack_packer *pk, void *context,
                            msgpack_object d) {
     int ret = FLB_FALSE;
-    struct mk_list *head;
-    struct regexp_rule *rule;
     struct regexp_ctx *ctx = context;
-
-    mk_list_foreach(head, &ctx->rules) {
-        rule = mk_list_entry(head, struct regexp_rule, _head);
-    }
 
     switch (d.type) {
         case MSGPACK_OBJECT_NIL:
@@ -408,7 +402,10 @@ static int msgpack_handler(msgpack_packer *pk, void *context,
             msgpack_object *o = d.via.array.ptr;
             msgpack_object *const oend = d.via.array.ptr + d.via.array.size;
             for (; o != oend; ++o) {
-                msgpack_handler(pk, ctx, *o);
+                ret = msgpack_handler(pk, ctx, *o);
+                if (ret == REGEXP_SKIP) {
+                    return REGEXP_SKIP;
+                }
             }
             break;
 
@@ -418,7 +415,13 @@ static int msgpack_handler(msgpack_packer *pk, void *context,
             msgpack_object_kv *const kvend = d.via.map.ptr + d.via.map.size;
             for (; kv != kvend; ++kv) {
                 ret = msgpack_handler(pk, ctx, kv->key);
+                if (ret == REGEXP_SKIP) {
+                    return REGEXP_SKIP;
+                }
                 ret = msgpack_handler(pk, ctx, kv->val);
+                if (ret == REGEXP_SKIP) {
+                    return REGEXP_SKIP;
+                }
             }
             break;
 
@@ -439,30 +442,33 @@ static int cb_regexp_filter(void *data, size_t bytes, char *tag, int tag_len,
     (void)f_ins;
     (void)config;
 
-    msgpack_sbuffer tmp_sbuf;
-    msgpack_packer tmp_pck;
+    msgpack_sbuffer tmp_sbuf, sbuf;
+    msgpack_packer tmp_pck, pck;
     struct mk_list *head;
 
     struct regexp_ctx *ctx = context;
     struct regexp_rule *rule;
 
-    /* Create temporal msgpack buffer */
-    msgpack_sbuffer_init(&tmp_sbuf);
-    msgpack_packer_init(&tmp_pck, &tmp_sbuf, msgpack_sbuffer_write);
+    /* Create out msgpack buffer */
+    msgpack_sbuffer_init(&sbuf);
+    msgpack_packer_init(&pck, &sbuf, msgpack_sbuffer_write);
 
     /* Iterate each item array and apply rules */
     msgpack_unpacked_init(&result);
     while (msgpack_unpack_next(&result, data, bytes, &off)) {
-        /* Lookup parser */
-        mk_list_foreach(head, &ctx->rules) {
-            rule = mk_list_entry(head, struct regexp_rule, _head);
+        msgpack_sbuffer_init(&tmp_sbuf);
+        msgpack_packer_init(&tmp_pck, &tmp_sbuf, msgpack_sbuffer_write);
+        if (msgpack_handler(&tmp_pck, ctx, result.data) == REGEXP_SKIP) {
+            struct msgpack_object obj = result.data;
+            msgpack_pack_object(&pck, obj);
+        } else {
+            msgpack_sbuffer_write(&sbuf, tmp_sbuf.data, tmp_sbuf.size);
         }
-        msgpack_handler(&tmp_pck, ctx, result.data);
     }
 
     /* link new buffers */
-    *ret_buf = tmp_sbuf.data;
-    *ret_size = tmp_sbuf.size;
+    *ret_buf = sbuf.data;
+    *ret_size = sbuf.size;
     return ret;
 }
 
