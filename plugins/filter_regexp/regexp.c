@@ -244,10 +244,6 @@ static inline int apply_mutations(void *context, char *val, size_t vlen,
 
     buf = val;
     buf_size = vlen;
-    tmp_ptr = flb_malloc(vlen);
-    tmp_buf = tmp_ptr;
-    memcpy(tmp_buf, val, vlen);
-    tmp_size = vlen;
 
     int ret;
 
@@ -259,7 +255,6 @@ static inline int apply_mutations(void *context, char *val, size_t vlen,
             case REGEXP_SKIP: {
                 ret = regexp_match_data(rule, buf, buf_size);
                 if (ret == REGEXP_SKIP) {
-                    flb_free(tmp_buf);
                     return ret;
                 }
                 break;
@@ -267,6 +262,9 @@ static inline int apply_mutations(void *context, char *val, size_t vlen,
             case REGEXP_SUBST: {
                 ret = regexp_replace_data(
                     rule, buf, buf_size, (unsigned char **)&tmp_buf, &tmp_size);
+                if (buf != val) {
+                    flb_free(buf);
+                }
                 buf = tmp_buf;
                 buf_size = tmp_size;
                 break;
