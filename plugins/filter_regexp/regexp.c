@@ -255,6 +255,9 @@ static inline int apply_mutations(void *context, char *val, size_t vlen,
             case REGEXP_SKIP: {
                 ret = regexp_match_data(rule, buf, buf_size);
                 if (ret == REGEXP_SKIP) {
+                    if (buf != val) {
+                        flb_free(buf);
+                    }
                     return ret;
                 }
                 break;
