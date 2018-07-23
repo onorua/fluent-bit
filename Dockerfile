@@ -25,6 +25,7 @@ RUN cmake -DFLB_DEBUG=On \
           -DFLB_WITHOUT_SHARED_LIB=On \
           -DFLB_WITHOUT_EXAMPLES=On \
           -DFLB_HTTP_SERVER=On \
+          -DFLB_METRICS=On \
           -DFLB_OUT_KAFKA=On ..
 RUN make
 RUN install bin/fluent-bit /fluent-bit/bin/
