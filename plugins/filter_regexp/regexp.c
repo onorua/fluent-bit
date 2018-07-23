@@ -456,15 +456,17 @@ static int cb_regexp_filter(void *data, size_t bytes, char *tag, int tag_len,
 
     /* Iterate each item array and apply rules */
     msgpack_unpacked_init(&result);
+    msgpack_sbuffer_init(&tmp_sbuf);
+    msgpack_packer_init(&tmp_pck, &tmp_sbuf, msgpack_sbuffer_write);
+
     while (msgpack_unpack_next(&result, data, bytes, &off)) {
-        msgpack_sbuffer_init(&tmp_sbuf);
-        msgpack_packer_init(&tmp_pck, &tmp_sbuf, msgpack_sbuffer_write);
         if (msgpack_handler(&tmp_pck, ctx, result.data) == REGEXP_SKIP) {
             struct msgpack_object obj = result.data;
             msgpack_pack_object(&pck, obj);
         } else {
             msgpack_sbuffer_write(&sbuf, tmp_sbuf.data, tmp_sbuf.size);
         }
+        msgpack_sbuffer_clear(&tmp_sbuf);
     }
 
     /* link new buffers */
