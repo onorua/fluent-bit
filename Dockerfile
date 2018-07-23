@@ -47,6 +47,13 @@ RUN apt-get update \
     && apt-get install --no-install-recommends ca-certificates libssl1.0.2 -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get autoclean
+
+RUN set -ex \
+    && apt update \
+    && apt install python-pip -y
+
+RUN pip install envtpl
+
 COPY --from=builder /fluent-bit /fluent-bit
 
 #
