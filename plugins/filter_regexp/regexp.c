@@ -227,7 +227,7 @@ static inline int regexp_match_data(struct regexp_rule *rule, char *val,
         return -1;
     }
 
-    onig_region_free(region, 1 /* 1:free self, 0:free contents only */);
+    // onig_region_free(region, 1 /* 1:free self, 0:free contents only */);
     return ret;
 }
 
