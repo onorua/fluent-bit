@@ -456,6 +456,7 @@ static int cb_regexp_filter(void *data, size_t bytes, char *tag, int tag_len,
 
     /* Iterate each item array and apply rules */
     msgpack_unpacked_init(&result);
+
     msgpack_sbuffer_init(&tmp_sbuf);
     msgpack_packer_init(&tmp_pck, &tmp_sbuf, msgpack_sbuffer_write);
 
@@ -466,7 +467,9 @@ static int cb_regexp_filter(void *data, size_t bytes, char *tag, int tag_len,
         } else {
             msgpack_sbuffer_write(&sbuf, tmp_sbuf.data, tmp_sbuf.size);
         }
-        msgpack_sbuffer_clear(&tmp_sbuf);
+        // sbuffer_clear simply put the pointer to the beginning
+        // we need to destroy it
+        msgpack_sbuffer_destroy(&tmp_sbuf);
     }
 
     /* link new buffers */
