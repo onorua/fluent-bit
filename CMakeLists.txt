@@ -1,3 +1,4 @@
+
 cmake_minimum_required(VERSION 2.8)
 project(fluent-bit)
 
@@ -115,6 +116,7 @@ option(FLB_OUT_KAFKA       "Enable Kafka output plugin"          No)
 option(FLB_OUT_KAFKA_REST  "Enable Kafka Rest output plugin"    Yes)
 option(FLB_FILTER_GREP     "Enable grep filter"                 Yes)
 option(FLB_FILTER_MODIFY   "Enable modify filter"               Yes)
+option(FLB_FILTER_REGEXP   "Enable grep filter"                 Yes)
 option(FLB_FILTER_STDOUT   "Enable stdout filter"               Yes)
 option(FLB_FILTER_PARSER   "Enable parser filter"               Yes)
 option(FLB_FILTER_KUBERNETES "Enable kubernetes filter"         Yes)
